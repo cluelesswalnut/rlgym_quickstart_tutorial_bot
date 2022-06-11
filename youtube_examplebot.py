@@ -8,7 +8,7 @@ from stable_baselines3.ppo import MlpPolicy
 
 from rlgym.utils.obs_builders import AdvancedObs
 from rlgym.utils.state_setters import DefaultState
-from rlgym.utils.terminal_conditions.common_conditions import TimeoutCondition, NoTouchTimeoutCondition, GoalScoredCondition
+from rlgym.utils.terminal_conditions.common_conditions import TimeoutCondition, NoTouchTimeoutCondition, BallTouchedCondition
 from rlgym_tools.sb3_utils import SB3MultipleInstanceEnv
 from rlgym.utils.reward_functions.common_rewards.misc_rewards import EventReward
 from rlgym.utils.reward_functions.common_rewards.player_ball_rewards import VelocityPlayerToBallReward
@@ -29,29 +29,45 @@ if __name__ == '__main__':  # Required for multiprocessing
     batch_size = target_steps//10 #getting the batch size down to something more manageable - 100k in this case
     training_interval = 25_000_000
     mmr_save_frequency = 50_000_000
+    save_frequency = 5_000_000
+
+    # steps = steps // 100
+    # batch_size = batch_size // 100
+    # training_interval = training_interval // 1000
+
 
     def exit_save(model):
         model.save("models/exit_save")
 
     def get_match():  # Need to use a function so that each instance can call it and produce their own objects
         return Match(
+            # game_speed = 5,
             team_size=1,
             tick_skip=frame_skip,
+            # reward_function=VelocityPlayerToBallReward(),
+            # reward_function=CombinedReward(
+            # (
+            #     VelocityPlayerToBallReward(),
+            #     VelocityBallToGoalReward(),
+            #     EventReward(
+            #         team_goal=100.0,
+            #         concede=-100.0,
+            #         shot=5.0,
+            #         save=30.0,
+            #         demo=10.0,
+            #     ),
+            # ),
+            # (0.1, 1.0, 1.0)),
             reward_function=CombinedReward(
             (
                 VelocityPlayerToBallReward(),
-                VelocityBallToGoalReward(),
                 EventReward(
-                    team_goal=100.0,
-                    concede=-100.0,
-                    shot=5.0,
-                    save=30.0,
-                    demo=10.0,
+                    touch=100.0,
                 ),
             ),
-            (0.1, 1.0, 1.0)),
-            # self_play=True,  in rlgym 1.2 'self_play' is depreciated. Uncomment line if using an earlier version
-            terminal_conditions=[TimeoutCondition(fps * 300), NoTouchTimeoutCondition(fps * 45), GoalScoredCondition()],
+            (1.0, 1.0)),
+            self_play=True,  # in rlgym 1.2 'self_play' is depreciated. Uncomment line if using an earlier version
+            terminal_conditions=[TimeoutCondition(fps * 300), NoTouchTimeoutCondition(fps * 45), BallTouchedCondition()],
             obs_builder=AdvancedObs(),  # Not that advanced, good default
             state_setter=DefaultState(),  # Resets to kickoff position
             action_parser=DiscreteAction()  # Discrete > Continuous don't @ me
@@ -77,7 +93,7 @@ if __name__ == '__main__':  # Required for multiprocessing
         from torch.nn import Tanh
         policy_kwargs = dict(
             activation_fn=Tanh,
-            net_arch=[512, 512, dict(pi=[256, 256, 256], vf=[256, 256, 256])],
+            net_arch=[256, 256, dict(pi=[128, 128, 128], vf=[128, 128, 128])],
         )
 
         model = PPO(
@@ -99,7 +115,7 @@ if __name__ == '__main__':  # Required for multiprocessing
     # Save model every so often
     # Divide by num_envs (number of agents) because callback only increments every time all agents have taken a step
     # This saves to specified folder with a specified name
-    callback = CheckpointCallback(round(5_000_000 / env.num_envs), save_path="models", name_prefix="rl_model")
+    callback = CheckpointCallback(round(save_frequency / env.num_envs), save_path="models", name_prefix="rl_model")
 
     try:
         mmr_model_target_count = model.num_timesteps + mmr_save_frequency
